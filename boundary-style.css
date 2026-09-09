@@ -1,0 +1,9 @@
+.map-legend .legend-line.province {
+  height: 3px;
+  background: repeating-linear-gradient(90deg, #641622 0 9px, transparent 9px 14px);
+}
+
+.map-legend .legend-line.commune {
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #8c2635 0 5px, transparent 5px 9px);
+}
