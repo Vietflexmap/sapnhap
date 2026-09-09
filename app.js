@@ -278,6 +278,7 @@ class BoundaryLayer extends V.GridLayer {
     ctx.save();
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    const scale = Math.max(1, renderScale);
     for (const f of features) {
       const p = f.properties || {};
       const province = p.level === 'province';
@@ -296,10 +297,12 @@ class BoundaryLayer extends V.GridLayer {
         ? 'rgba(255, 220, 80, .34)'
         : province
           ? 'rgba(190, 35, 51, .025)'
-          : 'rgba(20, 103, 186, .035)';
+          : 'rgba(140, 38, 53, .025)';
       ctx.fill('evenodd');
-      ctx.strokeStyle = selected ? '#d71920' : province ? '#bd2333' : '#176fbd';
-      ctx.lineWidth = (selected ? 2.4 : province ? 1.7 : 1.0) / renderScale;
+      ctx.strokeStyle = selected ? '#d71920' : province ? '#641622' : '#8c2635';
+      ctx.setLineDash(selected ? [] : (province ? [9 / scale, 5 / scale] : [5 / scale, 4 / scale]));
+      ctx.lineWidth = (selected ? 2.4 : province ? 1.65 : 1.05) / scale;
+      ctx.lineCap = selected ? 'round' : 'butt';
       ctx.globalAlpha = selected ? 1 : .9;
       ctx.stroke();
       ctx.globalAlpha = 1;
