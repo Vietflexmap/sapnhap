@@ -1,81 +1,157 @@
 <!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0b2d3a">
-  <meta name="description" content="WebGIS tra cứu 34 tỉnh/thành và 3.321 phường, xã, đặc khu Việt Nam sau sắp xếp 2025.">
-  <title>Vietflex · Tra cứu sáp nhập ĐVHC 2025</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@6144d565fcf236727577ab3c4471bbe49f86892f/dist/vietflex.css">
-  <link rel="stylesheet" href="./app.css">
-  <script src="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@6144d565fcf236727577ab3c4471bbe49f86892f/dist/vietflex.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="WebGIS tra cứu 34 tỉnh/thành và 3.321 xã, phường, đặc khu Việt Nam sau sắp xếp 2025." />
+  <title>Vietflex · Bản đồ sáp nhập 2025</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@main/dist/vietflex.css" />
+  <link rel="stylesheet" href="./app.css" />
+  <script src="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@main/dist/vietflex.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark">VN</div>
-      <div><strong>Vietflex Sáp nhập</strong><span>Tra cứu ĐVHC Việt Nam sau 2025</span></div>
-    </div>
-    <div class="global-search">
-      <input id="searchInput" type="search" autocomplete="off" placeholder="Tìm tên, mã ĐVHC, tỉnh/thành…" aria-label="Tìm kiếm đơn vị hành chính">
-      <button id="searchClear" class="icon-btn" title="Xóa tìm kiếm" aria-label="Xóa">×</button>
-      <div id="searchResults" class="search-results" hidden></div>
-    </div>
-    <button id="compareOpen" class="primary-btn">So sánh</button>
-  </header>
+  <noscript>Ứng dụng cần JavaScript để hiển thị bản đồ.</noscript>
 
-  <main class="workspace">
-    <aside class="sidebar" id="sidebar">
-      <section class="hero-card">
-        <div class="eyebrow">MASTER DATA · SNAPSHOT 2025</div>
-        <h1>34 tỉnh/thành · 3.321 đơn vị cấp xã</h1>
-        <div class="kpis">
-          <div><b>697</b><span>phường</span></div><div><b>2.611</b><span>xã</span></div><div><b>13</b><span>đặc khu</span></div>
+  <div id="app">
+    <div id="map" aria-label="Bản đồ hành chính Việt Nam"></div>
+
+    <header class="topbar glass">
+      <div class="brand">
+        <div class="brand-mark">VF</div>
+        <div>
+          <strong>Vietflex · Sáp nhập 2025</strong>
+          <span>Tra cứu hành chính Việt Nam</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="btnCompare" class="btn btn-primary" type="button" title="Mở bảng so sánh">
+          <span>So sánh</span><span id="compareBadge" class="badge">0</span>
+        </button>
+        <button id="btnTogglePanel" class="icon-btn mobile-only" type="button" aria-label="Mở bảng tra cứu">☰</button>
+      </div>
+    </header>
+
+    <aside id="sidebar" class="sidebar glass" aria-label="Tra cứu hành chính">
+      <section class="hero-copy">
+        <div class="eyebrow">CƠ SỞ DỮ LIỆU HÀNH CHÍNH</div>
+        <h1>34 tỉnh/thành<br><span>3.321 đơn vị cấp xã</span></h1>
+        <p>Tra cứu ranh giới, diện tích, dân số và mật độ dân số theo dữ liệu sau sắp xếp 2025.</p>
+      </section>
+
+      <section class="stats-grid" aria-label="Thống kê tổng quan">
+        <button class="stat-card" data-filter="all"><b>3.321</b><span>Tổng đơn vị</span></button>
+        <button class="stat-card" data-filter="phường"><b>697</b><span>Phường</span></button>
+        <button class="stat-card" data-filter="xã"><b>2.611</b><span>Xã</span></button>
+        <button class="stat-card" data-filter="đặc khu"><b>13</b><span>Đặc khu</span></button>
+      </section>
+
+      <section class="search-section">
+        <label class="search-box" for="searchInput">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" autocomplete="off" placeholder="Tên, mã ĐVHC, tỉnh/thành…" />
+          <kbd>/</kbd>
+        </label>
+
+        <div class="filters-row">
+          <select id="provinceSelect" aria-label="Chọn tỉnh thành">
+            <option value="">Tất cả 34 tỉnh/thành</option>
+          </select>
+          <select id="typeSelect" aria-label="Chọn loại đơn vị">
+            <option value="">Tất cả loại</option>
+            <option value="phường">Phường</option>
+            <option value="xã">Xã</option>
+            <option value="đặc khu">Đặc khu</option>
+          </select>
         </div>
       </section>
 
-      <section class="filters">
-        <label>Tỉnh / thành
-          <select id="provinceFilter"><option value="">Tất cả 34 tỉnh/thành</option></select>
-        </label>
-        <label>Loại đơn vị
-          <select id="typeFilter"><option value="">Tất cả</option><option value="phường">Phường</option><option value="xã">Xã</option><option value="đặc khu">Đặc khu</option></select>
-        </label>
-      </section>
-
-      <section id="detailCard" class="detail-card empty">
-        <div class="empty-state"><b>Chọn một đơn vị</b><span>Tìm kiếm, chọn từ danh sách hoặc bấm trực tiếp lên ranh giới bản đồ.</span></div>
-      </section>
-
-      <section class="list-section">
-        <div class="section-title"><b>Danh sách</b><span id="resultCount">0 đơn vị</span></div>
-        <div id="unitList" class="unit-list"></div>
-      </section>
+      <div class="list-head">
+        <span id="resultCount">Đang nạp dữ liệu…</span>
+        <button id="btnReset" class="text-btn" type="button">Đặt lại</button>
+      </div>
+      <div id="resultList" class="result-list" role="listbox" aria-label="Kết quả tra cứu"></div>
     </aside>
 
-    <section class="map-wrap">
-      <div id="map" role="application" aria-label="Bản đồ đơn vị hành chính Việt Nam"></div>
-      <div class="map-status" id="mapStatus"><span class="dot loading"></span><span>Đang nạp ranh giới PMTiles…</span></div>
-      <button id="sidebarToggle" class="map-fab mobile-only" aria-label="Mở danh sách">☰</button>
-      <div class="map-legend"><span class="legend-line province"></span>Tỉnh/thành <span class="legend-line commune"></span>Phường/xã/đặc khu</div>
+    <section id="detailCard" class="detail-card glass hidden" aria-live="polite">
+      <button id="btnCloseDetail" class="close-btn" type="button" aria-label="Đóng">×</button>
+      <div class="detail-kicker" id="detailType">Đơn vị hành chính</div>
+      <h2 id="detailName">—</h2>
+      <p id="detailProvince">—</p>
+      <div class="metric-row">
+        <div><span>Diện tích</span><strong id="detailArea">—</strong></div>
+        <div><span>Dân số</span><strong id="detailPopulation">—</strong></div>
+        <div><span>Mật độ</span><strong id="detailDensity">—</strong></div>
+      </div>
+      <dl class="detail-list">
+        <div><dt>Mã ĐVHC</dt><dd id="detailCode">—</dd></div>
+        <div><dt>Tọa độ</dt><dd id="detailCoordinates">—</dd></div>
+      </dl>
+      <div class="detail-actions">
+        <button id="btnAddCompare" class="btn btn-primary" type="button">+ Thêm vào so sánh</button>
+        <a id="googleLink" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Google Maps ↗</a>
+      </div>
     </section>
-  </main>
 
-  <aside id="compareDrawer" class="compare-drawer" aria-hidden="true">
-    <div class="drawer-head"><div><div class="eyebrow">SO SÁNH THỐNG KÊ</div><h2>Đối chiếu đơn vị hành chính</h2></div><button id="compareClose" class="icon-btn" aria-label="Đóng">×</button></div>
-    <div class="compare-mode" role="tablist"><button class="active" data-mode="province">Tỉnh / thành</button><button data-mode="unit">Phường / xã / đặc khu</button></div>
-    <div class="compare-picker">
-      <input id="compareSearch" type="search" placeholder="Tìm để thêm vào so sánh…">
-      <div id="compareSuggestions" class="compare-suggestions"></div>
+    <div class="map-controls glass" aria-label="Điều khiển bản đồ">
+      <button id="zoomIn" class="map-btn" type="button" aria-label="Phóng to">＋</button>
+      <button id="zoomOut" class="map-btn" type="button" aria-label="Thu nhỏ">−</button>
+      <button id="homeMap" class="map-btn" type="button" aria-label="Toàn Việt Nam">⌂</button>
+      <div class="separator"></div>
+      <select id="basemapSelect" title="Bản đồ nền" aria-label="Bản đồ nền">
+        <option value="roadmap">Google Road</option>
+        <option value="satellite">Google Satellite</option>
+        <option value="hybrid">Google Hybrid</option>
+        <option value="terrain">Google Terrain</option>
+      </select>
     </div>
-    <div id="compareChips" class="compare-chips"></div>
-    <div class="metric-tabs"><button class="active" data-metric="area_km2">Diện tích</button><button data-metric="population_2025">Dân số</button><button data-metric="density">Mật độ</button></div>
-    <div class="chart-card"><canvas id="compareChart"></canvas></div>
-    <div id="compareTable" class="compare-table"></div>
-    <p class="method-note">Thống kê tỉnh/thành được tổng hợp từ các đơn vị cấp xã trong bộ dữ liệu nguồn; mật độ = dân số / diện tích.</p>
-  </aside>
-  <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+
+    <button id="boundaryToggle" class="boundary-toggle glass active" type="button" aria-pressed="true">
+      <span class="legend-line"></span> Ranh giới 2025
+    </button>
+
+    <div id="loading" class="loading-overlay">
+      <div class="loader"></div>
+      <strong>Đang dựng WebGIS Việt Nam…</strong>
+      <span id="loadingText">Nạp dữ liệu hành chính</span>
+    </div>
+
+    <div id="toast" class="toast" role="status"></div>
+
+    <dialog id="compareDialog" class="compare-dialog">
+      <div class="compare-shell">
+        <header class="compare-header">
+          <div>
+            <div class="eyebrow">PHÂN TÍCH SO SÁNH</div>
+            <h2>Diện tích · Dân số · Mật độ</h2>
+            <p>Có thể so sánh tỉnh/thành với nhau, đơn vị cấp xã với nhau hoặc trộn hai cấp.</p>
+          </div>
+          <button id="btnCloseCompare" class="close-btn" type="button" aria-label="Đóng">×</button>
+        </header>
+        <div class="compare-toolbar">
+          <select id="compareLevel">
+            <option value="province">Thêm tỉnh/thành</option>
+            <option value="commune">Thêm phường/xã/đặc khu</option>
+          </select>
+          <input id="compareSearch" type="search" placeholder="Tìm đơn vị để thêm…" />
+          <div id="compareSuggestions" class="compare-suggestions"></div>
+          <button id="btnClearCompare" class="btn btn-ghost" type="button">Xóa tất cả</button>
+        </div>
+        <div id="compareChips" class="compare-chips"></div>
+        <div id="compareEmpty" class="compare-empty">
+          <b>Chưa có đơn vị để so sánh</b>
+          <span>Chọn một đơn vị trên bản đồ và nhấn “Thêm vào so sánh”, hoặc tìm ở phía trên.</span>
+        </div>
+        <div id="charts" class="charts hidden">
+          <article class="chart-card"><h3>Diện tích <span>km²</span></h3><div class="chart-wrap"><canvas id="areaChart"></canvas></div></article>
+          <article class="chart-card"><h3>Dân số <span>người</span></h3><div class="chart-wrap"><canvas id="populationChart"></canvas></div></article>
+          <article class="chart-card"><h3>Mật độ dân số <span>người/km²</span></h3><div class="chart-wrap"><canvas id="densityChart"></canvas></div></article>
+        </div>
+      </div>
+    </dialog>
+  </div>
 
   <script type="module" src="./app.js"></script>
 </body>
