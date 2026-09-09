@@ -1,0 +1,11 @@
+{
+  "bytes": 2008432,
+  "validation": {
+    "provinces": 34,
+    "units": 3321,
+    "phường": 697,
+    "xã": 2611,
+    "đặc khu": 13
+  },
+  "source": "sapnhap.bando.com.vn via Hugging Face mirror"
+}
