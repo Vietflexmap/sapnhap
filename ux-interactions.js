@@ -136,36 +136,10 @@ async function waitForBoundary(map) {
 }
 
 function enhanceBoundaryPaint(boundary) {
-  if (!boundary || boundary.__sapnhapEnhancedPaint || typeof boundary._paint !== 'function') return;
-  const original = boundary._paint.bind(boundary);
-  boundary._paint = function enhancedPaint(ctx, size, features) {
-    original(ctx, size, features);
-    for (const feature of features) {
-      if (!this.selectedIds?.has(String(feature.properties?.id))) continue;
-      ctx.save();
-      ctx.beginPath();
-      for (const ring of feature.geometry || []) {
-        if (!ring.length) continue;
-        ring.forEach((pt, index) => {
-          const x = pt.x / feature.extent * size;
-          const y = pt.y / feature.extent * size;
-          if (index) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-        });
-        ctx.closePath();
-      }
-      ctx.fillStyle = 'rgba(255, 214, 0, .72)';
-      ctx.fill('evenodd');
-      ctx.strokeStyle = '#d40000';
-      ctx.lineWidth = 4.5;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.shadowColor = 'rgba(150, 0, 0, .30)';
-      ctx.shadowBlur = 3;
-      ctx.stroke();
-      ctx.restore();
-    }
-  };
-  boundary.__sapnhapEnhancedPaint = true;
+  // Painting is owned by tile-seam-fix.js. Do not wrap _paint here: a second
+  // canvas pass makes native z9 tiles scale a second red/yellow outline at
+  // high zoom and produces the large red block seen in the UI.
+  if (!boundary) return;
   boundary.redraw?.();
 }
 
@@ -189,13 +163,7 @@ function resolveItem(record) {
 function findRecordForItem(item) {
   if (!item) return null;
   if (item.id?.startsWith('p:')) {
-    const pName = normalize(item.name);
-    const pFull = normalize(item.full_name);
-    return UX.boundaryRecords.find(record => {
-      if (!isProvinceRecord(record)) return false;
-      const names = [record.name, record.province, record.full_name].map(normalize);
-      return names.includes(pName) || names.includes(pFull);
-    }) || null;
+    return makeProvinceRecord(item);
   }
 
   const itemCode = String(item.code || '').padStart(5, '0');
@@ -216,9 +184,74 @@ function findRecordForItem(item) {
   ) || null;
 }
 
-function fitItem(item) {
+function provinceRecordsFor(itemOrRecord) {
+  if (!itemOrRecord) return [];
+  const provinceCode = String(itemOrRecord.province_code ?? itemOrRecord.order ?? '').trim();
+  const names = [
+    itemOrRecord.name,
+    itemOrRecord.full_name,
+    itemOrRecord.province,
+    itemOrRecord.province_full_name
+  ].map(normalize).filter(Boolean);
+  return UX.boundaryRecords.filter(record => {
+    if (isProvinceRecord(record)) return false;
+    if (provinceCode && String(record.province_code ?? '').trim() === provinceCode) return true;
+    return names.includes(normalize(record.province));
+  });
+}
+
+function unionBBox(records) {
+  const boxes = records.map(record => parseBBox(record.bbox)).filter(Boolean);
+  if (!boxes.length) return null;
+  return [
+    Math.min(...boxes.map(box => box[0])),
+    Math.min(...boxes.map(box => box[1])),
+    Math.max(...boxes.map(box => box[2])),
+    Math.max(...boxes.map(box => box[3]))
+  ];
+}
+
+function makeProvinceRecord(item) {
+  const records = provinceRecordsFor(item);
+  const provinceName = records[0]?.province || item.province_full_name || item.full_name || item.name;
+  return {
+    id: `P_${String(item.order ?? '').replace(/^0+/, '') || '0'}`,
+    name: provinceName,
+    full_name: provinceName,
+    type: item.type || 'tỉnh',
+    province: provinceName,
+    province_code: String(item.order ?? ''),
+    level: 'province',
+    bbox: unionBBox(records),
+    childIds: records.map(record => String(record.id)).filter(Boolean)
+  };
+}
+
+function selectionIdsForRecord(record) {
+  if (!record) return [];
+  const id = String(record.id ?? '');
+  if (!id) return [];
+  if (!isProvinceRecord(record)) return [id];
+  const childIds = (record.childIds?.length ? record.childIds : provinceRecordsFor(record).map(child => child.id))
+    .map(String)
+    .filter(Boolean);
+  return [...new Set([id, ...childIds])];
+}
+
+function usableBBox(bbox, item) {
+  if (!bbox) return false;
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+  if (maxLon <= minLon || maxLat <= minLat || maxLon - minLon > 10 || maxLat - minLat > 10) return false;
+  if (item?.centroid_lon == null || item?.centroid_lat == null) return true;
+  return item.centroid_lon >= minLon && item.centroid_lon <= maxLon &&
+    item.centroid_lat >= minLat && item.centroid_lat <= maxLat;
+}
+
+function fitItem(item, record = null) {
   if (!UX.map || !item) return;
-  const bbox = parseBBox(item.bbox);
+  const recordBBox = parseBBox(record?.bbox);
+  const itemBBox = parseBBox(item.bbox);
+  const bbox = recordBBox || (usableBBox(itemBBox, item) ? itemBBox : null);
   if (bbox) {
     const [minLon, minLat, maxLon, maxLat] = bbox;
     UX.map.fitBounds([[minLat, minLon], [maxLat, maxLon]], {
@@ -269,7 +302,7 @@ function popupHtml(item) {
       ${item.resolution ? `<div class="admin-popup-row"><span>Căn cứ / Nghị quyết</span><b>${escapeHtml(item.resolution)}</b></div>` : ''}
     </section>
     <footer class="admin-popup-footer">
-      <span><i></i> Nền vàng · viền đỏ = đơn vị đang chọn</span>
+      <span><i></i> Nền vàng · viền đỏ phát sáng = đang chọn</span>
       <button type="button" class="admin-popup-close" data-admin-popup-close>Đóng</button>
     </footer>
   </article>`;
@@ -297,7 +330,7 @@ function selectBoundary(record) {
   const id = String(record.id ?? '');
   if (!id) return false;
   UX.activeBoundaryId = id;
-  UX.boundary.setSelected([id]);
+  UX.boundary.setSelected(selectionIdsForRecord(record));
   return true;
 }
 
@@ -328,7 +361,7 @@ function focusItemFromUI(item, { popup = false, fit = true } = {}) {
     return;
   }
   selectBoundary(record);
-  if (fit) fitItem(item);
+  if (fit) fitItem(item, record);
   if (popup) setTimeout(() => openRichPopup(item), 180);
   dismissHint();
 }
@@ -345,9 +378,9 @@ async function identifyAndFocus(event) {
       console.warn('Không ghép được ranh giới với master data', record);
       return;
     }
-    UX.activeBoundaryId = id;
-    UX.boundary.setSelected([id]);
-    fitItem(item);
+    selectBoundary(record);
+    const fitRecord = isProvinceRecord(record) ? findRecordForItem(item) : record;
+    fitItem(item, fitRecord);
     setTimeout(() => openRichPopup(item, event.latlng), 190);
     dismissHint();
   } catch (error) {

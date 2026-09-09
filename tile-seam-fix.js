@@ -140,18 +140,7 @@
 
   function isSelectedFeature(boundary, props = {}) {
     const id = String(props.id ?? '');
-    if (id && boundary.selectedIds?.has(id)) return true;
-    const active = R.activeRecord;
-    if (!active) return false;
-    if (id && String(active.id ?? '') === id) return true;
-    const ac = recordCode(active), fc = featureCode(props);
-    if (ac && fc && ac === fc) return true;
-    if (!isProvinceRecord(active)) {
-      const ak = unitKey(recordName(active), recordType(active), recordProvince(active));
-      const fk = featureKey(props);
-      if (ak && fk && ak === fk) return true;
-    }
-    return false;
+    return Boolean(id && boundary.selectedIds?.has(id));
   }
 
   function fillFeature(ctx, size, feature, fill) {
@@ -161,12 +150,16 @@
     ctx.fill('evenodd');
   }
 
-  function strokeFeature(ctx, size, feature, color, width, alpha = 1) {
+  function strokeFeature(ctx, size, feature, color, width, alpha = 1, { renderScale = 1, shadowColor = 'transparent', shadowBlur = 0 } = {}) {
     buildStrokePath(ctx, size, feature);
     ctx.strokeStyle = color;
-    ctx.lineWidth = width;
+    ctx.lineWidth = width / Math.max(1, renderScale);
     ctx.globalAlpha = alpha;
+    ctx.shadowColor = shadowColor;
+    ctx.shadowBlur = shadowBlur / Math.max(1, renderScale);
     ctx.stroke();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   }
 
@@ -174,7 +167,7 @@
     if (!boundary) return;
     boundary.__sapnhapEnhancedPaint = true;
 
-    boundary._paint = function hierarchySeamSafePaint(ctx, size, features = []) {
+    boundary._paint = function hierarchySeamSafePaint(ctx, size, features = [], { renderScale = 1 } = {}) {
       ctx.save();
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
@@ -195,15 +188,22 @@
       for (const feature of province) fillFeature(ctx, size, feature, 'rgba(190, 35, 51, .025)');
 
       // Pass 2: ranh cấp xã màu xanh.
-      for (const feature of normal) strokeFeature(ctx, size, feature, '#176fbd', 0.9, 0.92);
+      for (const feature of normal) strokeFeature(ctx, size, feature, '#176fbd', 1.15, 0.82, { renderScale });
 
       // Pass 3: ranh tỉnh/thành màu đỏ, luôn nằm trên ranh cấp xã.
-      for (const feature of province) strokeFeature(ctx, size, feature, '#cf2638', 2.15, 0.98);
+      for (const feature of province) strokeFeature(ctx, size, feature, '#cf2638', 1.7, 0.96, { renderScale });
 
-      // Pass 4: đơn vị đang chọn nằm trên cùng: vàng + đỏ đậm.
+      // Pass 4: vùng đang chọn nằm trên cùng. Màu vàng là nền nhận diện,
+      // đỏ chỉ dùng cho đường biên và halo để không lấp kín polygon.
       for (const feature of selected) {
-        fillFeature(ctx, size, feature, 'rgba(255, 215, 0, .62)');
-        strokeFeature(ctx, size, feature, '#e00000', 4.2, 1);
+        fillFeature(ctx, size, feature, 'rgba(255, 220, 80, .38)');
+        strokeFeature(ctx, size, feature, '#f04a45', 7.5, 0.42, {
+          renderScale,
+          shadowColor: 'rgba(224, 24, 35, .52)',
+          shadowBlur: 4.5
+        });
+        strokeFeature(ctx, size, feature, '#c91825', 2.8, 1, { renderScale });
+        strokeFeature(ctx, size, feature, '#ffe7a3', 0.8, 0.95, { renderScale });
       }
 
       ctx.restore();
@@ -368,7 +368,6 @@
 
     decorateBoundarySelection(boundary);
     installRenderer(boundary);
-    installSelectionSync();
     syncActiveListSelection();
 
     // Nếu UX khác thay renderer sau đó, lấy lại quyền vẽ hierarchy một lần nữa.
@@ -379,10 +378,10 @@
     }, 1400);
 
     window.__SAPNHAP_BOUNDARY_RENDERER__ = {
-      version: '2026.09.09-r2',
-      colors: { province: '#cf2638', commune: '#176fbd', selectedFill: '#ffd700', selectedStroke: '#e00000' }
+      version: '2026.09.09-r3',
+      colors: { province: '#cf2638', commune: '#176fbd', selectedFill: '#ffdc50', selectedStroke: '#c91825', selectedGlow: '#f04a45' }
     };
-    console.info('Vietflex renderer r2 ready: province red · commune blue · selected yellow/red · seam-safe.');
+    console.info('Vietflex renderer r3 ready: native-z9 stroke compensation · selected yellow fill with red glow.');
   }
 
   boot();

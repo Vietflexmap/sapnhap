@@ -7,6 +7,10 @@ const $ = (id) => document.getElementById(id);
 const fmt0 = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 });
 const fmt2 = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 });
 const SOURCE_LAYER = 'admin';
+const BOUNDARY_MIN_ZOOM = 4;
+const BOUNDARY_MAX_ZOOM = 18;
+const BOUNDARY_NATIVE_MAX_ZOOM = 9;
+const TILE_SIZE = 256;
 const EXPECTED = { provinces: 34, units: 3321, 'phường': 697, 'xã': 2611, 'đặc khu': 13 };
 const PROVINCE_ORDER = [
   'Hà Nội','Cao Bằng','Tuyên Quang','Điện Biên','Lai Châu','Sơn La','Lào Cai','Thái Nguyên','Lạng Sơn','Quảng Ninh','Bắc Ninh','Phú Thọ','Hải Phòng','Hưng Yên','Ninh Bình','Thanh Hóa','Nghệ An','Hà Tĩnh','Quảng Trị','Huế','Đà Nẵng','Quảng Ngãi','Gia Lai','Khánh Hòa','Đắk Lắk','Lâm Đồng','Đồng Nai','Hồ Chí Minh','Tây Ninh','Đồng Tháp','Vĩnh Long','An Giang','Cần Thơ','Cà Mau'
@@ -196,7 +200,52 @@ function pointInRing(x,y,ring) { let inside=false; for(let i=0,j=ring.length-1;i
 function pointInGeometry(x,y,geometry) { let inside=false; for(const ring of geometry) if(ring.length>2 && pointInRing(x,y,ring)) inside=!inside; return inside; }
 
 class BoundaryLayer extends V.GridLayer {
-  initialize(archive, options={}) { super.initialize({ tileSize:256,minZoom:4,maxZoom:18,minNativeZoom:4,maxNativeZoom:9,noWrap:true,updateWhenIdle:false,keepBuffer:2,className:'boundary-canvas',...options }); this.archive=archive; this.decoded=new Map(); this.selectedIds=new Set(); }
+  initialize(archive, options = {}) {
+    super.initialize({
+      tileSize: TILE_SIZE,
+      minZoom: BOUNDARY_MIN_ZOOM,
+      maxZoom: BOUNDARY_MAX_ZOOM,
+      minNativeZoom: BOUNDARY_MIN_ZOOM,
+      maxNativeZoom: BOUNDARY_NATIVE_MAX_ZOOM,
+      noWrap: true,
+      updateWhenIdle: false,
+      keepBuffer: 2,
+      className: 'boundary-canvas',
+      ...options
+    });
+    this.archive = archive;
+    this.decoded = new Map();
+    this.selectedIds = new Set();
+    this._boundaryLastZoom = null;
+    this._boundaryZoomHandler = null;
+  }
+
+  onAdd(mapInstance) {
+    super.onAdd(mapInstance);
+    this._boundaryLastZoom = mapInstance.getZoom();
+    this._boundaryZoomHandler = () => {
+      const zoom = mapInstance.getZoom();
+      if (zoom === this._boundaryLastZoom) return;
+      this._boundaryLastZoom = zoom;
+      // PMTiles is native to z9. Repaint after zooming so line widths are
+      // compensated for the CSS scale applied by Leaflet to native tiles.
+      this.redraw();
+    };
+    mapInstance.on('zoomend', this._boundaryZoomHandler, this);
+  }
+
+  onRemove(mapInstance) {
+    if (this._boundaryZoomHandler) mapInstance.off('zoomend', this._boundaryZoomHandler, this);
+    this._boundaryZoomHandler = null;
+    super.onRemove(mapInstance);
+  }
+
+  displayScale(tileZoom) {
+    const mapZoom = Number(this._map?.getZoom?.());
+    if (!Number.isFinite(mapZoom)) return 1;
+    return Math.max(1, 2 ** (mapZoom - tileZoom));
+  }
+
   async _getDecodedTile(z,x,y) {
     const key=`${z}/${x}/${y}`;
     if(!this.decoded.has(key)) this.decoded.set(key, this.archive.getZxy(z,x,y).then(result=>{
@@ -206,10 +255,74 @@ class BoundaryLayer extends V.GridLayer {
     }));
     return this.decoded.get(key);
   }
-  createTile(coords,done) { const tile=document.createElement('canvas'); const ratio=Math.max(1,Math.min(2,devicePixelRatio||1)); tile.width=256*ratio;tile.height=256*ratio;tile.style.width='256px';tile.style.height='256px';const ctx=tile.getContext('2d');ctx.scale(ratio,ratio);this._getDecodedTile(coords.z,coords.x,coords.y).then(features=>{this._paint(ctx,256,features);done(null,tile);}).catch(err=>done(err,tile));return tile; }
-  _paint(ctx,size,features) { for(const f of features){const p=f.properties||{};const province=p.level==='province';const selected=this.selectedIds.has(String(p.id));ctx.beginPath();for(const ring of f.geometry){if(!ring.length)continue;ring.forEach((pt,i)=>{const x=pt.x/f.extent*size,y=pt.y/f.extent*size;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.closePath();}ctx.fillStyle=selected?'rgba(255,218,57,.58)':province?'rgba(190,35,51,.075)':'rgba(20,103,186,.055)';ctx.fill('evenodd');ctx.strokeStyle=selected?'#df352f':province?'#bd2333':'#1467ba';ctx.lineWidth=selected?2.8:province?1.4:.75;ctx.globalAlpha=selected?1:.92;ctx.stroke();ctx.globalAlpha=1;} }
+  createTile(coords, done) {
+    const tile = document.createElement('canvas');
+    const ratio = Math.max(1, Math.min(2, devicePixelRatio || 1));
+    tile.width = TILE_SIZE * ratio;
+    tile.height = TILE_SIZE * ratio;
+    tile.style.width = `${TILE_SIZE}px`;
+    tile.style.height = `${TILE_SIZE}px`;
+    const ctx = tile.getContext('2d');
+    ctx.scale(ratio, ratio);
+    const renderScale = this.displayScale(coords.z);
+    this._getDecodedTile(coords.z, coords.x, coords.y)
+      .then(features => {
+        this._paint(ctx, TILE_SIZE, features, { renderScale, tileZoom: coords.z });
+        done(null, tile);
+      })
+      .catch(error => done(error, tile));
+    return tile;
+  }
+
+  _paint(ctx, size, features, { renderScale = 1 } = {}) {
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (const f of features) {
+      const p = f.properties || {};
+      const province = p.level === 'province';
+      const selected = this.selectedIds.has(String(p.id));
+      ctx.beginPath();
+      for (const ring of f.geometry) {
+        if (!ring.length) continue;
+        ring.forEach((pt, i) => {
+          const x = pt.x / f.extent * size;
+          const y = pt.y / f.extent * size;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        });
+        ctx.closePath();
+      }
+      ctx.fillStyle = selected
+        ? 'rgba(255, 220, 80, .34)'
+        : province
+          ? 'rgba(190, 35, 51, .025)'
+          : 'rgba(20, 103, 186, .035)';
+      ctx.fill('evenodd');
+      ctx.strokeStyle = selected ? '#d71920' : province ? '#bd2333' : '#176fbd';
+      ctx.lineWidth = (selected ? 2.4 : province ? 1.7 : 1.0) / renderScale;
+      ctx.globalAlpha = selected ? 1 : .9;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
   setSelected(ids=[]) { this.selectedIds=new Set(ids.map(String)); this.redraw(); }
-  async featureAt(latlng,mapZoom,map) { const z=Math.min(9,Math.max(4,Math.round(mapZoom)));const projected=map.project(latlng,z),x=Math.floor(projected.x/256),y=Math.floor(projected.y/256);const features=await this._getDecodedTile(z,x,y);if(!features.length)return null;const extent=features[0].extent,lx=(projected.x-x*256)/256*extent,ly=(projected.y-y*256)/256*extent;for(let i=features.length-1;i>=0;i--)if(pointInGeometry(lx,ly,features[i].geometry))return features[i];return null; }
+  async featureAt(latlng, mapZoom, mapInstance) {
+    const z = Math.min(BOUNDARY_NATIVE_MAX_ZOOM, Math.max(BOUNDARY_MIN_ZOOM, Math.round(mapZoom)));
+    const projected = mapInstance.project(latlng, z);
+    const x = Math.floor(projected.x / TILE_SIZE);
+    const y = Math.floor(projected.y / TILE_SIZE);
+    const features = await this._getDecodedTile(z, x, y);
+    if (!features.length) return null;
+    const extent = features[0].extent;
+    const lx = (projected.x - x * TILE_SIZE) / TILE_SIZE * extent;
+    const ly = (projected.y - y * TILE_SIZE) / TILE_SIZE * extent;
+    for (let i = features.length - 1; i >= 0; i--) {
+      if (pointInGeometry(lx, ly, features[i].geometry)) return features[i];
+    }
+    return null;
+  }
 }
 
 if (!V || !V.vietflexMap) throw new Error('Vietflex core chưa được nạp.');
@@ -257,7 +370,14 @@ function focusItem(item) { if(item.centroid_lat!=null&&item.centroid_lon!=null){
 function selectItem(item,opts={}) {
   if(!item)return; state.selected=item; const card=$('detailCard');card.classList.remove('empty');card.innerHTML=item.id.startsWith('p:')?provinceDetail(item):unitDetail(item);
   card.querySelector('[data-compare]')?.addEventListener('click',()=>{openCompare(item.id.startsWith('p:')?'province':'unit');addCompare(item);});
-  if(state.boundary){let rec=null;if(item.id.startsWith('u:')) rec=state.boundaryByKey.get(unitKey(item.name,item.type,item.province_name));else rec=state.boundaryRecords.find(r=>normalize(r.name)===normalize(item.name)&&(r.level==='province'||normalize(r.type).includes('tinh')||normalize(r.type).includes('thanh pho')));state.boundary.setSelected(rec?[rec.id]:[]);}
+  if (typeof window.__SAPNHAP_FOCUS_ITEM__ === 'function') {
+    window.__SAPNHAP_FOCUS_ITEM__(item, { fit: false });
+  } else if (state.boundary && item.id.startsWith('u:')) {
+    // Fallback for a slow UX module load. The canonical UX path takes over
+    // as soon as it is available and also handles province child IDs.
+    const rec = state.boundaryByKey.get(unitKey(item.name,item.type,item.province_name));
+    state.boundary.setSelected(rec ? [rec.id] : []);
+  }
   renderList(filteredUnits().slice(0,300),filteredUnits().length); if(!opts.keepView)focusItem(item);
   if(opts.openPopupAt) map.openPopup(`<b>${escapeHtml(item.full_name)}</b><br>${item.code?`Mã ${escapeHtml(item.code)}<br>`:''}${n(item.area_km2,2)} km² · ${n(item.population_2025)} người`,opts.openPopupAt);
   if(innerWidth<=800)$('sidebar').classList.add('open');
