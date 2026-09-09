@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0b2d3a">
-  <meta name="description" content="WebGIS tra cứu 34 tỉnh/thành và 3.321 phường, xã, đặc khu Việt Nam sau sắp xếp 2025.">
+  <meta name="description" content="WebGIS tra cứu 34 tỉnh/thành và 3.321 phường, xã, đặc khu Việt Nam sau sắp xếp 2025; so sánh diện tích, dân số và mật độ.">
   <title>Vietflex · Tra cứu sáp nhập ĐVHC 2025</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@6144d565fcf236727577ab3c4471bbe49f86892f/dist/vietflex.css">
-  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./app.css?v=20260909-2">
   <script src="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@6144d565fcf236727577ab3c4471bbe49f86892f/dist/vietflex.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
@@ -45,7 +45,7 @@
       </section>
 
       <section id="detailCard" class="detail-card empty">
-        <div class="empty-state"><b>Chọn một đơn vị</b><span>Tìm kiếm, chọn từ danh sách hoặc bấm trực tiếp lên ranh giới bản đồ.</span></div>
+        <div class="empty-state"><b>Đang khởi tạo dữ liệu…</b><span>Hệ thống sẽ tự kiểm tra 34 tỉnh/thành và 3.321 đơn vị trước khi mở tra cứu.</span></div>
       </section>
 
       <section class="list-section">
@@ -73,10 +73,10 @@
     <div class="metric-tabs"><button class="active" data-metric="area_km2">Diện tích</button><button data-metric="population_2025">Dân số</button><button data-metric="density">Mật độ</button></div>
     <div class="chart-card"><canvas id="compareChart"></canvas></div>
     <div id="compareTable" class="compare-table"></div>
-    <p class="method-note">Thống kê tỉnh/thành được tổng hợp từ các đơn vị cấp xã trong bộ dữ liệu nguồn; mật độ = dân số / diện tích.</p>
+    <p class="method-note">Mật độ = dân số / diện tích. Dữ liệu tra cứu được kiểm tra số lượng và mã ĐVHC trước khi hiển thị.</p>
   </aside>
   <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=20260909-2"></script>
 </body>
 </html>
