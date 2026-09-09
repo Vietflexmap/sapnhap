@@ -31,6 +31,7 @@ EXPECTED = {
     "xã": 2611,
     "đặc khu": 13,
 }
+VALID_UNIT_TYPES = {"phường", "xã", "đặc khu"}
 
 
 def clean(v):
@@ -43,6 +44,13 @@ def clean(v):
         pass
     if isinstance(v, float) and math.isnan(v):
         return None
+    if hasattr(v, "tolist"):
+        return v.tolist()
+    if hasattr(v, "item"):
+        try:
+            return v.item()
+        except Exception:
+            pass
     return v
 
 
@@ -85,6 +93,13 @@ def unit_type(v: str) -> str:
     return s
 
 
+def infer_unit_type(type_value, full_name) -> str:
+    typ = unit_type(type_value)
+    if typ not in VALID_UNIT_TYPES:
+        typ = unit_type(full_name)
+    return typ
+
+
 def province_type(v: str) -> str:
     s = text(v).lower()
     if "thủ đô" in s:
@@ -120,7 +135,6 @@ def build() -> dict:
     for _, row in provinces_df.iterrows():
         short = short_province(row.get("ten_short") or row.get("ten"))
         if short not in order_by_name:
-            # ten_short is normally preferred; fall back to full label stripping.
             short = short_province(row.get("ten"))
         if short not in order_by_name:
             raise ValueError(f"Unknown province in source: {row.get('ten')!r} / {row.get('ten_short')!r}")
@@ -128,12 +142,16 @@ def build() -> dict:
 
     units = []
     counts = {name: {"phường": 0, "xã": 0, "đặc khu": 0, "khác": 0} for name in PROVINCE_ORDER}
+    unresolved_types = []
 
     for idx, row in communes_df.iterrows():
         parent = short_province(row.get("parent_ten"))
         if parent not in order_by_name:
             raise ValueError(f"Unknown parent province for commune {row.get('ten')!r}: {row.get('parent_ten')!r}")
-        typ = unit_type(row.get("type"))
+        full_name = text(row.get("ten"))
+        typ = infer_unit_type(row.get("type"), full_name)
+        if typ not in VALID_UNIT_TYPES:
+            unresolved_types.append({"ten": full_name, "type": text(row.get("type")), "parent": parent})
         counts[parent][typ if typ in counts[parent] else "khác"] += 1
         code = text(row.get("ma")).zfill(5)
         area = number(row.get("area_km2"))
@@ -141,7 +159,6 @@ def build() -> dict:
         density = number(row.get("density"))
         if density is None and area and pop is not None:
             density = pop / area
-        full_name = text(row.get("ten"))
         name = text(row.get("ten_short")) or full_name.removeprefix("Phường ").removeprefix("Xã ").removeprefix("Đặc khu ")
         units.append({
             "id": f"u:{code}",
@@ -163,6 +180,9 @@ def build() -> dict:
             "centroid_lat": number(row.get("centroid_lat")),
             "bbox": clean(row.get("bbox")),
         })
+
+    if unresolved_types:
+        raise ValueError(f"Unresolved commune types: {unresolved_types[:10]}")
 
     units.sort(key=lambda u: (u["province_order"], u["type"], u["name"]))
 
