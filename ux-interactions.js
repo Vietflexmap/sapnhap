@@ -5,7 +5,9 @@ const UX = {
   map: null,
   boundary: null,
   data: null,
+  boundaryRecords: [],
   boundaryById: new Map(),
+  boundaryByKey: new Map(),
   activeBoundaryId: null,
   hint: null
 };
@@ -22,8 +24,8 @@ function normalize(text = '') {
 }
 
 function escapeHtml(value = '') {
-  return String(value).replace(/[&<>'"]/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  return String(value).replace(/[&<>'\"]/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '\"': '&quot;'
   }[ch]));
 }
 
@@ -34,6 +36,19 @@ function number(value, digits = 0) {
 
 function unitKey(name, type, province) {
   return `${normalize(province)}|${normalize(type)}|${normalize(name)}`;
+}
+
+function codeOf(record) {
+  const raw = record?.code ?? record?.ma ?? record?.admin_code ?? record?.ma_dvhc ?? '';
+  const s = String(raw).trim();
+  return s ? s.padStart(5, '0') : '';
+}
+
+function isProvinceRecord(record) {
+  if (!record) return false;
+  if (record.level === 'province') return true;
+  const t = normalize(record.type);
+  return t === 'tinh' || t === 'thanh pho' || t.includes('cap tinh');
 }
 
 function parseBBox(value) {
@@ -61,7 +76,7 @@ function parseBBox(value) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { cache: 'force-cache' });
+  const response = await fetch(url, { cache: 'no-cache' });
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   return response.json();
 }
@@ -88,7 +103,13 @@ async function loadBoundaryIndex() {
       const node = doc.getElementById('adminData');
       if (!node) throw new Error('không có adminData');
       const payload = JSON.parse(node.textContent);
-      for (const record of payload.records || []) UX.boundaryById.set(String(record.id), record);
+      UX.boundaryRecords = payload.records || [];
+      for (const record of UX.boundaryRecords) {
+        UX.boundaryById.set(String(record.id), record);
+        if (!isProvinceRecord(record)) {
+          UX.boundaryByKey.set(unitKey(record.name, record.type, record.province), record);
+        }
+      }
       return;
     } catch (error) {
       errors.push(`${url}: ${error.message}`);
@@ -106,10 +127,10 @@ function findBoundaryLayer(map) {
 }
 
 async function waitForBoundary(map) {
-  for (let i = 0; i < 100; i += 1) {
+  for (let i = 0; i < 120; i += 1) {
     const found = findBoundaryLayer(map);
     if (found) return found;
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise(resolve => setTimeout(resolve, 125));
   }
   return null;
 }
@@ -132,12 +153,14 @@ function enhanceBoundaryPaint(boundary) {
         });
         ctx.closePath();
       }
-      ctx.fillStyle = 'rgba(255, 214, 0, .66)';
+      ctx.fillStyle = 'rgba(255, 214, 0, .72)';
       ctx.fill('evenodd');
-      ctx.strokeStyle = '#d60000';
-      ctx.lineWidth = 4;
-      ctx.shadowColor = 'rgba(214, 0, 0, .28)';
-      ctx.shadowBlur = 2;
+      ctx.strokeStyle = '#d40000';
+      ctx.lineWidth = 4.5;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(150, 0, 0, .30)';
+      ctx.shadowBlur = 3;
       ctx.stroke();
       ctx.restore();
     }
@@ -148,14 +171,49 @@ function enhanceBoundaryPaint(boundary) {
 
 function resolveItem(record) {
   if (!record || !UX.data) return null;
-  const isProvince = record.level === 'province' || ['tỉnh', 'thành phố'].some(t => normalize(record.type).includes(normalize(t)));
-  if (isProvince) {
-    const target = normalize(record.name || record.province);
-    return UX.data.provinces.find(p => normalize(p.name) === target || normalize(p.full_name) === target) || null;
+  const recordCode = codeOf(record);
+  if (recordCode) {
+    const byCode = UX.data.units.find(unit => String(unit.code).padStart(5, '0') === recordCode);
+    if (byCode) return byCode;
+  }
+  if (isProvinceRecord(record)) {
+    const targets = [record.name, record.province, record.full_name].map(normalize).filter(Boolean);
+    return UX.data.provinces.find(p => targets.includes(normalize(p.name)) || targets.includes(normalize(p.full_name))) || null;
   }
   const key = unitKey(record.name, record.type, record.province);
   return UX.data.units.find(unit => unitKey(unit.name, unit.type, unit.province_name) === key) ||
-    UX.data.units.find(unit => normalize(unit.name) === normalize(record.name) && normalize(unit.province_name) === normalize(record.province)) || null;
+    UX.data.units.find(unit => normalize(unit.name) === normalize(record.name) && normalize(unit.province_name) === normalize(record.province)) ||
+    null;
+}
+
+function findRecordForItem(item) {
+  if (!item) return null;
+  if (item.id?.startsWith('p:')) {
+    const pName = normalize(item.name);
+    const pFull = normalize(item.full_name);
+    return UX.boundaryRecords.find(record => {
+      if (!isProvinceRecord(record)) return false;
+      const names = [record.name, record.province, record.full_name].map(normalize);
+      return names.includes(pName) || names.includes(pFull);
+    }) || null;
+  }
+
+  const itemCode = String(item.code || '').padStart(5, '0');
+  if (itemCode && itemCode !== '00000') {
+    const byCode = UX.boundaryRecords.find(record => !isProvinceRecord(record) && codeOf(record) === itemCode);
+    if (byCode) return byCode;
+  }
+
+  const exact = UX.boundaryByKey.get(unitKey(item.name, item.type, item.province_name));
+  if (exact) return exact;
+
+  const name = normalize(item.name);
+  const province = normalize(item.province_name);
+  return UX.boundaryRecords.find(record =>
+    !isProvinceRecord(record) &&
+    normalize(record.name) === name &&
+    normalize(record.province) === province
+  ) || null;
 }
 
 function fitItem(item) {
@@ -165,15 +223,15 @@ function fitItem(item) {
     const [minLon, minLat, maxLon, maxLat] = bbox;
     UX.map.fitBounds([[minLat, minLon], [maxLat, maxLon]], {
       animate: true,
-      duration: 0.45,
-      paddingTopLeft: window.innerWidth > 800 ? [42, 42] : [18, 18],
-      paddingBottomRight: window.innerWidth > 800 ? [42, 42] : [18, 18],
+      duration: 0.38,
+      paddingTopLeft: window.innerWidth > 800 ? [46, 46] : [18, 74],
+      paddingBottomRight: window.innerWidth > 800 ? [46, 46] : [18, 24],
       maxZoom: item.id?.startsWith('p:') ? 8 : 13
     });
     return;
   }
   if (item.centroid_lat != null && item.centroid_lon != null) {
-    UX.map.setView([item.centroid_lat, item.centroid_lon], item.id?.startsWith('p:') ? 7 : 11, { animate: true });
+    UX.map.setView([item.centroid_lat, item.centroid_lon], item.id?.startsWith('p:') ? 7 : 12, { animate: true });
   }
 }
 
@@ -211,7 +269,7 @@ function popupHtml(item) {
       ${item.resolution ? `<div class="admin-popup-row"><span>Căn cứ / Nghị quyết</span><b>${escapeHtml(item.resolution)}</b></div>` : ''}
     </section>
     <footer class="admin-popup-footer">
-      <span><i></i> Đang chọn trên bản đồ</span>
+      <span><i></i> Nền vàng · viền đỏ = đơn vị đang chọn</span>
       <button type="button" class="admin-popup-close" data-admin-popup-close>Đóng</button>
     </footer>
   </article>`;
@@ -223,21 +281,24 @@ function showHint() {
   if (!wrap) return;
   const hint = document.createElement('div');
   hint.className = 'map-interaction-hint';
-  hint.innerHTML = '<span class="gesture-icon">◎</span><span><b>Khám phá ranh giới</b><small>Nhấp đúp hoặc chạm 2 lần vào đơn vị để xem đầy đủ</small></span>';
+  hint.innerHTML = '<span class="gesture-icon">◎</span><span><b>Chọn đơn vị trên bản đồ</b><small>Nhấp đúp hoặc chạm 2 lần để mở thông tin đầy đủ</small></span>';
   wrap.appendChild(hint);
   UX.hint = hint;
-  const dismissed = localStorage.getItem('sapnhap-focus-hint-seen') === '1';
-  if (dismissed) hint.classList.add('compact');
+  if (localStorage.getItem('sapnhap-focus-hint-seen') === '1') hint.classList.add('compact');
 }
 
 function dismissHint() {
-  localStorage.setItem('sapnhap-focus-hint-seen', '1');
+  try { localStorage.setItem('sapnhap-focus-hint-seen', '1'); } catch (_) {}
   UX.hint?.classList.add('compact');
 }
 
-function clearFocus() {
-  UX.activeBoundaryId = null;
-  UX.boundary?.setSelected([]);
+function selectBoundary(record) {
+  if (!record || !UX.boundary) return false;
+  const id = String(record.id ?? '');
+  if (!id) return false;
+  UX.activeBoundaryId = id;
+  UX.boundary.setSelected([id]);
+  return true;
 }
 
 function openRichPopup(item, latlng) {
@@ -245,12 +306,12 @@ function openRichPopup(item, latlng) {
   const anchor = latlng || (item.centroid_lat != null && item.centroid_lon != null ? [item.centroid_lat, item.centroid_lon] : UX.map.getCenter());
   UX.map.openPopup(popupHtml(item), anchor, {
     className: 'admin-focus-popup',
-    maxWidth: 460,
-    minWidth: 300,
+    maxWidth: 470,
+    minWidth: Math.min(320, Math.max(260, window.innerWidth - 36)),
     closeButton: true,
     autoPan: true,
-    autoPanPaddingTopLeft: window.innerWidth > 800 ? [390, 88] : [20, 76],
-    autoPanPaddingBottomRight: [20, 24],
+    autoPanPaddingTopLeft: window.innerWidth > 800 ? [390, 86] : [18, 72],
+    autoPanPaddingBottomRight: [18, 24],
     keepInView: true
   });
   requestAnimationFrame(() => {
@@ -259,8 +320,21 @@ function openRichPopup(item, latlng) {
   });
 }
 
+function focusItemFromUI(item, { popup = false, fit = true } = {}) {
+  if (!item || !UX.boundary) return;
+  const record = findRecordForItem(item);
+  if (!record) {
+    console.warn('Không tìm thấy ranh giới cho đơn vị đang chọn', item);
+    return;
+  }
+  selectBoundary(record);
+  if (fit) fitItem(item);
+  if (popup) setTimeout(() => openRichPopup(item), 180);
+  dismissHint();
+}
+
 async function identifyAndFocus(event) {
-  if (!UX.boundary || !UX.data) return;
+  if (!UX.boundary || !UX.data || !event?.latlng) return;
   try {
     const feature = await UX.boundary.featureAt(event.latlng, UX.map.getZoom(), UX.map);
     if (!feature) return;
@@ -274,11 +348,36 @@ async function identifyAndFocus(event) {
     UX.activeBoundaryId = id;
     UX.boundary.setSelected([id]);
     fitItem(item);
-    setTimeout(() => openRichPopup(item, event.latlng), 220);
+    setTimeout(() => openRichPopup(item, event.latlng), 190);
     dismissHint();
   } catch (error) {
-    console.warn('Double-click identify failed', error);
+    console.warn('Identify/focus failed', error);
   }
+}
+
+function itemFromClickedElement(target) {
+  const searchHit = target.closest?.('.search-hit[data-id]');
+  if (searchHit) {
+    const id = searchHit.dataset.id;
+    return [...(UX.data?.provinces || []), ...(UX.data?.units || [])].find(x => x.id === id) || null;
+  }
+
+  const unitButton = target.closest?.('.unit-item');
+  if (unitButton) {
+    const code = unitButton.querySelector('code')?.textContent?.trim();
+    if (code) return UX.data?.units.find(x => String(x.code).padStart(5, '0') === code.padStart(5, '0')) || null;
+    const name = unitButton.querySelector('strong')?.textContent?.trim();
+    return UX.data?.units.find(x => normalize(x.full_name) === normalize(name)) || null;
+  }
+  return null;
+}
+
+function installUiSelectionSync() {
+  document.addEventListener('click', event => {
+    const item = itemFromClickedElement(event.target);
+    if (!item) return;
+    setTimeout(() => focusItemFromUI(item, { popup: false, fit: true }), 0);
+  }, false);
 }
 
 function installMapUX() {
@@ -286,23 +385,32 @@ function installMapUX() {
   enhanceBoundaryPaint(UX.boundary);
   UX.map.doubleClickZoom?.disable?.();
   UX.map.on('dblclick', identifyAndFocus);
-  UX.map.on('popupclose', event => {
-    const className = event.popup?.options?.className || '';
-    if (String(className).includes('admin-focus-popup')) clearFocus();
-  });
   showHint();
+  installUiSelectionSync();
+
+  // Expose one canonical focus API so future UI pieces reuse the same selection path.
+  window.__SAPNHAP_FOCUS_ITEM__ = (item, options = {}) => focusItemFromUI(item, options);
+  window.__SAPNHAP_CLEAR_SELECTION__ = () => {
+    UX.activeBoundaryId = null;
+    UX.boundary?.setSelected([]);
+  };
 }
 
 async function bootstrapUX() {
-  for (let i = 0; i < 80 && !window.__SAPNHAP_MAP__; i += 1) await new Promise(resolve => setTimeout(resolve, 100));
+  for (let i = 0; i < 100 && !window.__SAPNHAP_MAP__; i += 1) await new Promise(resolve => setTimeout(resolve, 100));
   UX.map = window.__SAPNHAP_MAP__;
-  if (!UX.map) return;
+  if (!UX.map) {
+    console.warn('Không nhận được map instance từ Vietflex');
+    return;
+  }
 
-  const [dataResult] = await Promise.allSettled([loadAdminData(), loadBoundaryIndex()]);
+  const [dataResult, boundaryIndexResult] = await Promise.allSettled([loadAdminData(), loadBoundaryIndex()]);
   if (dataResult.status === 'rejected') {
     console.warn('Không thể khởi tạo lớp UX popup', dataResult.reason);
     return;
   }
+  if (boundaryIndexResult.status === 'rejected') console.warn('Boundary index fallback failed', boundaryIndexResult.reason);
+
   UX.boundary = await waitForBoundary(UX.map);
   if (!UX.boundary) {
     console.warn('Không tìm thấy BoundaryLayer cho lớp UX');
