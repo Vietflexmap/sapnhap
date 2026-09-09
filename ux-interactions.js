@@ -23,6 +23,10 @@ function normalize(text = '') {
     .trim();
 }
 
+function shortProvince(text = '') {
+  return String(text).replace(/^(Thủ đô|Thành phố|Tỉnh)\s+/i, '').trim();
+}
+
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'\"]/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '\"': '&quot;'
@@ -35,7 +39,7 @@ function number(value, digits = 0) {
 }
 
 function unitKey(name, type, province) {
-  return `${normalize(province)}|${normalize(type)}|${normalize(name)}`;
+  return `${normalize(shortProvince(province))}|${normalize(type)}|${normalize(name)}`;
 }
 
 function codeOf(record) {
