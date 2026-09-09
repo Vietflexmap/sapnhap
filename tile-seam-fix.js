@@ -5,6 +5,14 @@
     'https://cdn.jsdelivr.net/gh/Vietflexmap/anhmap@e80f4ee9f1e167817e4a9af8402c0bca4052573e/index.html'
   ];
 
+  // Administrative boundaries use a Google-Maps-like visual hierarchy:
+  // dark burgundy dashed strokes for context, with the active query kept solid.
+  const ADMIN_STYLE = {
+    commune: { color: '#8c2635', width: 1.05, alpha: 0.84, dash: [5, 4] },
+    province: { color: '#641622', width: 1.65, alpha: 0.94, dash: [9, 5] },
+    selected: { glow: '#f04a45', core: '#c91825', highlight: '#ffe7a3', fill: 'rgba(255, 220, 80, .38)' }
+  };
+
   const R = {
     map: null,
     boundary: null,
@@ -150,17 +158,26 @@
     ctx.fill('evenodd');
   }
 
-  function strokeFeature(ctx, size, feature, color, width, alpha = 1, { renderScale = 1, shadowColor = 'transparent', shadowBlur = 0 } = {}) {
+  function strokeFeature(ctx, size, feature, color, width, alpha = 1, {
+    renderScale = 1,
+    shadowColor = 'transparent',
+    shadowBlur = 0,
+    dash = [],
+    lineCap = 'round'
+  } = {}) {
     buildStrokePath(ctx, size, feature);
+    const scale = Math.max(1, renderScale);
+    ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = width / Math.max(1, renderScale);
+    ctx.lineWidth = width / scale;
+    ctx.setLineDash(dash.map(value => value / scale));
+    ctx.lineDashOffset = 0;
+    ctx.lineCap = lineCap;
     ctx.globalAlpha = alpha;
     ctx.shadowColor = shadowColor;
-    ctx.shadowBlur = shadowBlur / Math.max(1, renderScale);
+    ctx.shadowBlur = shadowBlur / scale;
     ctx.stroke();
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   function installRenderer(boundary) {
@@ -184,26 +201,38 @@
       }
 
       // Pass 1: nền nhẹ, cấp xã trước. Province fill rất nhẹ để không che nền bản đồ.
-      for (const feature of normal) fillFeature(ctx, size, feature, 'rgba(20, 103, 186, .045)');
+      for (const feature of normal) fillFeature(ctx, size, feature, 'rgba(140, 38, 53, .014)');
       for (const feature of province) fillFeature(ctx, size, feature, 'rgba(190, 35, 51, .025)');
 
-      // Pass 2: ranh cấp xã màu xanh.
-      for (const feature of normal) strokeFeature(ctx, size, feature, '#176fbd', 1.15, 0.82, { renderScale });
+      // Pass 2: ranh cấp xã/phường/đặc khu — đỏ sẫm, nét đứt mảnh.
+      for (const feature of normal) {
+        strokeFeature(ctx, size, feature, ADMIN_STYLE.commune.color, ADMIN_STYLE.commune.width, ADMIN_STYLE.commune.alpha, {
+          renderScale,
+          dash: ADMIN_STYLE.commune.dash,
+          lineCap: 'butt'
+        });
+      }
 
-      // Pass 3: ranh tỉnh/thành màu đỏ, luôn nằm trên ranh cấp xã.
-      for (const feature of province) strokeFeature(ctx, size, feature, '#cf2638', 1.7, 0.96, { renderScale });
+      // Pass 3: ranh tỉnh/thành — đỏ sẫm hơn, nét đứt dài hơn.
+      for (const feature of province) {
+        strokeFeature(ctx, size, feature, ADMIN_STYLE.province.color, ADMIN_STYLE.province.width, ADMIN_STYLE.province.alpha, {
+          renderScale,
+          dash: ADMIN_STYLE.province.dash,
+          lineCap: 'butt'
+        });
+      }
 
       // Pass 4: vùng đang chọn nằm trên cùng. Màu vàng là nền nhận diện,
       // đỏ chỉ dùng cho đường biên và halo để không lấp kín polygon.
       for (const feature of selected) {
-        fillFeature(ctx, size, feature, 'rgba(255, 220, 80, .38)');
-        strokeFeature(ctx, size, feature, '#f04a45', 7.5, 0.42, {
+        fillFeature(ctx, size, feature, ADMIN_STYLE.selected.fill);
+        strokeFeature(ctx, size, feature, ADMIN_STYLE.selected.glow, 7.5, 0.42, {
           renderScale,
           shadowColor: 'rgba(224, 24, 35, .52)',
           shadowBlur: 4.5
         });
-        strokeFeature(ctx, size, feature, '#c91825', 2.8, 1, { renderScale });
-        strokeFeature(ctx, size, feature, '#ffe7a3', 0.8, 0.95, { renderScale });
+        strokeFeature(ctx, size, feature, ADMIN_STYLE.selected.core, 2.8, 1, { renderScale });
+        strokeFeature(ctx, size, feature, ADMIN_STYLE.selected.highlight, 0.8, 0.95, { renderScale });
       }
 
       ctx.restore();
@@ -378,10 +407,11 @@
     }, 1400);
 
     window.__SAPNHAP_BOUNDARY_RENDERER__ = {
-      version: '2026.09.09-r3',
-      colors: { province: '#cf2638', commune: '#176fbd', selectedFill: '#ffdc50', selectedStroke: '#c91825', selectedGlow: '#f04a45' }
+      version: '2026.09.09-r4',
+      colors: { province: ADMIN_STYLE.province.color, commune: ADMIN_STYLE.commune.color, selectedFill: '#ffdc50', selectedStroke: ADMIN_STYLE.selected.core, selectedGlow: ADMIN_STYLE.selected.glow },
+      patterns: { province: ADMIN_STYLE.province.dash, commune: ADMIN_STYLE.commune.dash }
     };
-    console.info('Vietflex renderer r3 ready: native-z9 stroke compensation · selected yellow fill with red glow.');
+    console.info('Vietflex renderer r4 ready: dark-red dashed administrative boundaries · selected yellow fill with red glow.');
   }
 
   boot();
