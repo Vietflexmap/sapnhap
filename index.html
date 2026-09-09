@@ -7,9 +7,24 @@
   <meta name="description" content="WebGIS tra cứu 34 tỉnh/thành và 3.321 phường, xã, đặc khu Việt Nam sau sắp xếp 2025; so sánh diện tích, dân số và mật độ.">
   <title>Vietflex · Tra cứu sáp nhập ĐVHC 2025</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@6144d565fcf236727577ab3c4471bbe49f86892f/dist/vietflex.css">
-  <link rel="stylesheet" href="./app.css?v=20260909-2">
+  <link rel="stylesheet" href="./app.css?v=20260909-3">
+  <link rel="stylesheet" href="./ux-interactions.css?v=20260909-1">
   <script src="https://cdn.jsdelivr.net/gh/Vietflexmap/VN@6144d565fcf236727577ab3c4471bbe49f86892f/dist/vietflex.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+  <script>
+    (() => {
+      const V = window.Vietflex;
+      if (!V || !V.vietflexMap || V.__sapnhapMapCapture) return;
+      const original = V.vietflexMap;
+      V.vietflexMap = function (...args) {
+        const map = original.apply(this, args);
+        window.__SAPNHAP_MAP__ = map;
+        window.dispatchEvent(new CustomEvent('sapnhap:map-ready', { detail: { map } }));
+        return map;
+      };
+      V.__sapnhapMapCapture = true;
+    })();
+  </script>
 </head>
 <body>
   <header class="topbar">
@@ -55,10 +70,14 @@
     </aside>
 
     <section class="map-wrap">
-      <div id="map" role="application" aria-label="Bản đồ đơn vị hành chính Việt Nam"></div>
+      <div id="map" role="application" aria-label="Bản đồ đơn vị hành chính Việt Nam. Nhấp đúp hoặc chạm hai lần vào một đơn vị để xem đầy đủ thông tin."></div>
       <div class="map-status" id="mapStatus"><span class="dot loading"></span><span>Đang nạp ranh giới PMTiles…</span></div>
       <button id="sidebarToggle" class="map-fab mobile-only" aria-label="Mở danh sách">☰</button>
-      <div class="map-legend"><span class="legend-line province"></span>Tỉnh/thành <span class="legend-line commune"></span>Phường/xã/đặc khu</div>
+      <div class="map-legend">
+        <span class="legend-line province"></span>Tỉnh/thành
+        <span class="legend-line commune"></span>Phường/xã/đặc khu
+        <span class="legend-selected"></span>Đang chọn
+      </div>
     </section>
   </main>
 
@@ -77,6 +96,7 @@
   </aside>
   <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 
-  <script type="module" src="./app.js?v=20260909-2"></script>
+  <script type="module" src="./app.js?v=20260909-3"></script>
+  <script type="module" src="./ux-interactions.js?v=20260909-1"></script>
 </body>
 </html>
