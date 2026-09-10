@@ -272,53 +272,13 @@ function fitItem(item, record = null) {
   }
 }
 
-function statBox(label, value, unit = '') {
-  return `<div class="admin-popup-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${unit ? `<small>${escapeHtml(unit)}</small>` : ''}</div>`;
-}
-
-function popupHtml(item) {
-  const province = item.id?.startsWith('p:');
-  const typeLabel = item.type || (province ? 'tỉnh/thành' : 'đơn vị cấp xã');
-  const subtitle = province
-    ? `${number(item.commune_level_count)} đơn vị cấp xã`
-    : `${escapeHtml(item.province_full_name || item.province_name || '')}${item.code ? ` · Mã ĐVHC ${escapeHtml(item.code)}` : ''}`;
-  const structure = province
-    ? `<div class="admin-popup-row"><span>Cơ cấu</span><b>${number(item.counts_by_type?.['phường'])} phường · ${number(item.counts_by_type?.['xã'])} xã · ${number(item.counts_by_type?.['đặc khu'])} đặc khu</b></div>`
-    : '';
-  const sourceLabel = province ? 'Nguồn hình thành' : 'Được sắp xếp từ';
-  const sourceValue = province ? item.merge_origin : item.merged_from;
-
-  return `<article class="admin-focus-card" role="dialog" aria-label="Thông tin ${escapeHtml(item.full_name)}">
-    <header class="admin-popup-head">
-      <div class="admin-popup-type">${escapeHtml(typeLabel)}</div>
-      <h2>${escapeHtml(item.full_name)}</h2>
-      <p>${subtitle}</p>
-    </header>
-    <section class="admin-popup-stats">
-      ${statBox('Diện tích', number(item.area_km2, 2), 'km²')}
-      ${statBox('Dân số', number(item.population_2025), 'người')}
-      ${statBox('Mật độ', number(item.density), 'người/km²')}
-    </section>
-    <section class="admin-popup-body">
-      ${structure}
-      <div class="admin-popup-row"><span>Trung tâm hành chính</span><b>${escapeHtml(item.administrative_center || '—')}</b></div>
-      <div class="admin-popup-row"><span>${sourceLabel}</span><b>${escapeHtml(sourceValue || '—')}</b></div>
-      ${item.resolution ? `<div class="admin-popup-row"><span>Căn cứ / Nghị quyết</span><b>${escapeHtml(item.resolution)}</b></div>` : ''}
-    </section>
-    <footer class="admin-popup-footer">
-      <span><i></i> Nền vàng · viền đỏ phát sáng = đang chọn</span>
-      <button type="button" class="admin-popup-close" data-admin-popup-close>Đóng</button>
-    </footer>
-  </article>`;
-}
-
 function showHint() {
   if (document.querySelector('.map-interaction-hint')) return;
   const wrap = document.querySelector('.map-wrap');
   if (!wrap) return;
   const hint = document.createElement('div');
   hint.className = 'map-interaction-hint';
-  hint.innerHTML = '<span class="gesture-icon">◎</span><span><b>Chọn đơn vị trên bản đồ</b><small>Nhấp đúp hoặc chạm 2 lần để mở thông tin đầy đủ</small></span>';
+  hint.innerHTML = '<span class="gesture-icon">◎</span><span><b>Chọn đơn vị trên bản đồ</b><small>Nhấp vào vùng để cập nhật hồ sơ địa phương</small></span>';
   wrap.appendChild(hint);
   UX.hint = hint;
   if (localStorage.getItem('sapnhap-focus-hint-seen') === '1') hint.classList.add('compact');
@@ -326,7 +286,7 @@ function showHint() {
 
 function dismissHint() {
   try { localStorage.setItem('sapnhap-focus-hint-seen', '1'); } catch (_) {}
-  UX.hint?.classList.add('compact');
+  UX.hint?.classList.add('is-dismissed');
 }
 
 function selectBoundary(record) {
@@ -338,26 +298,7 @@ function selectBoundary(record) {
   return true;
 }
 
-function openRichPopup(item, latlng) {
-  if (!UX.map || !item) return;
-  const anchor = latlng || (item.centroid_lat != null && item.centroid_lon != null ? [item.centroid_lat, item.centroid_lon] : UX.map.getCenter());
-  UX.map.openPopup(popupHtml(item), anchor, {
-    className: 'admin-focus-popup',
-    maxWidth: 470,
-    minWidth: Math.min(320, Math.max(260, window.innerWidth - 36)),
-    closeButton: true,
-    autoPan: true,
-    autoPanPaddingTopLeft: window.innerWidth > 800 ? [390, 86] : [18, 72],
-    autoPanPaddingBottomRight: [18, 24],
-    keepInView: true
-  });
-  requestAnimationFrame(() => {
-    document.querySelector('[data-admin-popup-close]')?.addEventListener('click', () => UX.map.closePopup());
-    document.querySelector('.admin-focus-popup .leaflet-popup-close-button')?.setAttribute('aria-label', 'Đóng cửa sổ thông tin');
-  });
-}
-
-function focusItemFromUI(item, { popup = false, fit = true } = {}) {
+function focusItemFromUI(item, { fit = true } = {}) {
   if (!item || !UX.boundary) return;
   const record = findRecordForItem(item);
   if (!record) {
@@ -366,7 +307,6 @@ function focusItemFromUI(item, { popup = false, fit = true } = {}) {
   }
   selectBoundary(record);
   if (fit) fitItem(item, record);
-  if (popup) setTimeout(() => openRichPopup(item), 180);
   dismissHint();
 }
 
@@ -385,7 +325,6 @@ async function identifyAndFocus(event) {
     selectBoundary(record);
     const fitRecord = isProvinceRecord(record) ? findRecordForItem(item) : record;
     fitItem(item, fitRecord);
-    setTimeout(() => openRichPopup(item, event.latlng), 190);
     dismissHint();
   } catch (error) {
     console.warn('Identify/focus failed', error);
@@ -413,7 +352,7 @@ function installUiSelectionSync() {
   document.addEventListener('click', event => {
     const item = itemFromClickedElement(event.target);
     if (!item) return;
-    setTimeout(() => focusItemFromUI(item, { popup: false, fit: true }), 0);
+    setTimeout(() => focusItemFromUI(item, { fit: true }), 0);
   }, false);
 }
 
@@ -443,7 +382,7 @@ async function bootstrapUX() {
 
   const [dataResult, boundaryIndexResult] = await Promise.allSettled([loadAdminData(), loadBoundaryIndex()]);
   if (dataResult.status === 'rejected') {
-    console.warn('Không thể khởi tạo lớp UX popup', dataResult.reason);
+    console.warn('Không thể khởi tạo lớp UX chọn địa phương', dataResult.reason);
     return;
   }
   if (boundaryIndexResult.status === 'rejected') console.warn('Boundary index fallback failed', boundaryIndexResult.reason);
