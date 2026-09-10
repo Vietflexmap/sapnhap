@@ -61,6 +61,32 @@ function setMapStatus(text, kind = '') {
   status.innerHTML = `<span class="dot ${kind}"></span><span>${escapeHtml(text)}</span>`;
 }
 
+function updateSelectionBar(item) {
+  const bar = $('selectionBar');
+  if (!bar) return;
+  if (!item) {
+    bar.hidden = true;
+    return;
+  }
+  bar.querySelector('[data-selection-name]').textContent = item.full_name || item.name || 'Đơn vị hành chính';
+  bar.querySelector('[data-selection-meta]').textContent = `${item.province_full_name || item.province_name || ''}${item.code ? ` · Mã ĐVHC ${item.code}` : ''}`;
+  bar.hidden = false;
+}
+
+function resetDetailCard() {
+  const card = $('detailCard');
+  card.classList.add('empty');
+  card.innerHTML = `<div class="empty-state"><b>Dữ liệu đã sẵn sàng</b><span>${fmt0.format(state.units.length || 3321)} phường/xã/đặc khu · Chọn một đơn vị để tra cứu.</span></div>`;
+}
+
+function clearSelection() {
+  state.selected = null;
+  window.__SAPNHAP_CLEAR_SELECTION__?.();
+  updateSelectionBar(null);
+  resetDetailCard();
+  renderList(filteredUnits().slice(0, 300), filteredUnits().length);
+}
+
 function validatePayload(payload) {
   if (!payload || !Array.isArray(payload.provinces) || !Array.isArray(payload.units)) throw new Error('JSON không đúng schema provinces/units.');
   const counts = {
@@ -372,6 +398,7 @@ function unitDetail(u) { return `<div class="detail-head"><span class="badge">${
 function focusItem(item) { if(item.centroid_lat!=null&&item.centroid_lon!=null){map.setView([item.centroid_lat,item.centroid_lon],item.id.startsWith('p:')?7:11,{animate:true});} }
 function selectItem(item,opts={}) {
   if(!item)return; state.selected=item; const card=$('detailCard');card.classList.remove('empty');card.innerHTML=item.id.startsWith('p:')?provinceDetail(item):unitDetail(item);
+  updateSelectionBar(item);
   card.querySelector('[data-compare]')?.addEventListener('click',()=>{openCompare(item.id.startsWith('p:')?'province':'unit');addCompare(item);});
   if (typeof window.__SAPNHAP_FOCUS_ITEM__ === 'function') {
     window.__SAPNHAP_FOCUS_ITEM__(item, { fit: false });
@@ -382,7 +409,6 @@ function selectItem(item,opts={}) {
     state.boundary.setSelected(rec ? [rec.id] : []);
   }
   renderList(filteredUnits().slice(0,300),filteredUnits().length); if(!opts.keepView)focusItem(item);
-  if(opts.openPopupAt) map.openPopup(`<b>${escapeHtml(item.full_name)}</b><br>${item.code?`Mã ${escapeHtml(item.code)}<br>`:''}${n(item.area_km2,2)} km² · ${n(item.population_2025)} người`,opts.openPopupAt);
   if(innerWidth<=800)$('sidebar').classList.add('open');
 }
 function search(q) { const z=normalize(q);if(!z)return[];const exact=state.units.filter(u=>u.code===q.trim());const prov=state.provinces.filter(p=>normalize(`${p.full_name} ${p.name} ${p.code||''}`).includes(z)).slice(0,6);const units=state.units.filter(u=>normalize(`${u.full_name} ${u.name} ${u.province_name} ${u.code} ${u.merged_from||''}`).includes(z)).slice(0,18);return [...prov,...exact,...units.filter(u=>!exact.includes(u))].slice(0,24); }
@@ -399,11 +425,12 @@ function renderCompare() {
 }
 function compareSuggest() { const q=normalize($('compareSearch').value);const box=$('compareSuggestions');if(!q){box.innerHTML='';return;}const pool=state.compareMode==='province'?state.provinces:state.units;const rows=pool.filter(x=>normalize(`${x.full_name} ${x.name} ${x.province_name||''} ${x.code||''}`).includes(q)).slice(0,12);box.innerHTML=rows.map(x=>`<button data-id="${x.id}"><span>${escapeHtml(x.full_name)}</span>${x.code?`<code>${escapeHtml(x.code)}</code>`:''}</button>`).join('');box.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{addCompare(pool.find(x=>x.id===b.dataset.id));$('compareSearch').value='';box.innerHTML='';}); }
 
-map.on('click',async e=>{if(!state.boundary)return;try{const f=await state.boundary.featureAt(e.latlng,map.getZoom(),map);if(!f)return;const rec=state.boundaryById.get(String(f.properties.id));if(!rec)return;let item=state.units.find(x=>unitKey(x.name,x.type,x.province_name)===unitKey(rec.name,rec.type,rec.province));if(!item&&rec.level==='province')item=state.provinces.find(x=>normalize(x.name)===normalize(rec.name));if(item)selectItem(item,{openPopupAt:e.latlng,keepView:true});}catch(err){console.warn('Map identify failed',err);}});
+map.on('click',async e=>{if(!state.boundary)return;try{const f=await state.boundary.featureAt(e.latlng,map.getZoom(),map);if(!f)return;const rec=state.boundaryById.get(String(f.properties.id));if(!rec)return;let item=state.units.find(x=>unitKey(x.name,x.type,x.province_name)===unitKey(rec.name,rec.type,rec.province));if(!item&&rec.level==='province')item=state.provinces.find(x=>normalize(x.name)===normalize(rec.name));if(item)selectItem(item,{keepView:true});}catch(err){console.warn('Map identify failed',err);}});
 
 $('provinceFilter').addEventListener('change',applyFilters);$('typeFilter').addEventListener('change',applyFilters);
 $('searchInput').addEventListener('input',showSearch);$('searchClear').addEventListener('click',()=>{$('searchInput').value='';$('searchResults').hidden=true;$('searchInput').focus();});
 $('compareOpen').addEventListener('click',()=>openCompare());$('compareClose').addEventListener('click',closeCompare);$('drawerBackdrop').addEventListener('click',closeCompare);
+$('navCompare')?.addEventListener('click',()=>openCompare());$('selectionClear')?.addEventListener('click',clearSelection);
 document.querySelectorAll('.compare-mode button').forEach(b=>b.addEventListener('click',()=>openCompare(b.dataset.mode)));
 document.querySelectorAll('.metric-tabs button').forEach(b=>b.addEventListener('click',()=>{state.compareMetric=b.dataset.metric;document.querySelectorAll('.metric-tabs button').forEach(x=>x.classList.toggle('active',x===b));renderCompare();}));
 $('compareSearch').addEventListener('input',compareSuggest);$('sidebarToggle').addEventListener('click',()=>$('sidebar').classList.toggle('open'));
